@@ -8,17 +8,17 @@
 --
 -- RTCM3 to SBP tool.
 
-import BasicPrelude
+import           BasicPrelude
 import           Control.Monad.Trans.Resource
-import Data.Conduit
-import Data.Conduit.Binary
-import qualified Data.Conduit.List as CL
-import Data.Conduit.Serialization.Binary
-import Data.RTCM3.SBP
-import System.IO
+import           Data.Conduit
+import           Data.Conduit.Binary
+import qualified Data.Conduit.List                 as CL
+import           Data.Conduit.Serialization.Binary
+import           Data.RTCM3.SBP
+import           System.IO
 
 main :: IO ()
-main = runResourceT $
+main = runResourceT $ runConvert $
   sourceHandle stdin   =$=
   conduitDecode        =$=
   CL.mapMaybeM convert =$=

@@ -12,28 +12,31 @@
 
 module Data.RTCM3.SBP
   ( convert
+  , runConvert
   ) where
 
 import BasicPrelude
 import Control.Lens
 import Data.Bits
+import Data.IORef
 import Data.Time
 import Data.Word
 import Data.RTCM3
+import Data.RTCM3.SBP.Types
 import SwiftNav.SBP
 
 fromEcefVal :: Int64 -> Double
 fromEcefVal x = fromIntegral x / 10000
 
-toGPSTime :: MonadIO m => GpsObservationHeader -> m ObsGPSTime
+toGPSTime :: MonadStore e m => GpsObservationHeader -> m ObsGPSTime
 toGPSTime hdr = do
-  today <- utctDay <$> liftIO getCurrentTime
+  wn  <- view storeWn >>= liftIO . readIORef
   return ObsGPSTime
     { _obsGPSTime_tow = hdr ^. gpsObservationHeader_tow
-    , _obsGPSTime_wn  = fromIntegral $ div (diffDays today (fromGregorian 1980 1 6)) 7
+    , _obsGPSTime_wn  = wn
     }
 
-fromGpsObservationHeader :: MonadIO m => GpsObservationHeader -> m ObservationHeader
+fromGpsObservationHeader :: MonadStore e m => GpsObservationHeader -> m ObservationHeader
 fromGpsObservationHeader hdr = do
   t <- toGPSTime hdr
   return ObservationHeader
@@ -60,7 +63,6 @@ toL l1 l1e = CarrierPhase
     li = floor (l)
     lf :: Word8
     lf = truncate ((l - fromIntegral li) * 256)
-
 
 toCn0 :: GpsL1ExtObservation -> Word8
 toCn0 = (^. gpsL1ExtObservation_cnr)
@@ -105,7 +107,7 @@ fromObservation1004 obs =
         l1  = obs ^. observation1004_l1
         l1e = obs ^. observation1004_l1e
 
-fromMsg1002 :: MonadIO m => Msg1002 -> m MsgObs
+fromMsg1002 :: MonadStore e m => Msg1002 -> m MsgObs
 fromMsg1002 m = do
   header <- fromGpsObservationHeader $ m ^. msg1002_header
   return MsgObs
@@ -113,7 +115,7 @@ fromMsg1002 m = do
     , _msgObs_obs    = mapMaybe fromObservation1002 $ m ^. msg1002_observations
     }
 
-fromMsg1004 :: MonadIO m => Msg1004 -> m MsgObs
+fromMsg1004 :: MonadStore e m => Msg1004 -> m MsgObs
 fromMsg1004 m = do
   header <- fromGpsObservationHeader $ m ^. msg1004_header
   return MsgObs
@@ -121,7 +123,7 @@ fromMsg1004 m = do
     , _msgObs_obs    = mapMaybe fromObservation1004 $ m ^. msg1004_observations
     }
 
-fromMsg1005 :: MonadIO m => Msg1005 -> m MsgBasePosEcef
+fromMsg1005 :: MonadStore e m => Msg1005 -> m MsgBasePosEcef
 fromMsg1005 m =
   return MsgBasePosEcef
     { _msgBasePosEcef_x = fromEcefVal $ m ^. msg1005_reference ^. antennaReference_ecef_x
@@ -129,7 +131,7 @@ fromMsg1005 m =
     , _msgBasePosEcef_z = fromEcefVal $ m ^. msg1005_reference ^. antennaReference_ecef_z
     }
 
-fromMsg1006 :: MonadIO m => Msg1006 -> m MsgBasePosEcef
+fromMsg1006 :: MonadStore e m => Msg1006 -> m MsgBasePosEcef
 fromMsg1006 m =
   return MsgBasePosEcef
     { _msgBasePosEcef_x = fromEcefVal $ m ^. msg1006_reference ^. antennaReference_ecef_x
@@ -141,7 +143,7 @@ fromMsg1006 m =
 toSender :: Word16 -> Word16
 toSender = (.|. 0xf00)
 
-convert :: MonadIO m => RTCM3Msg -> m (Maybe SBPMsg)
+convert :: MonadStore e m => RTCM3Msg -> m (Maybe SBPMsg)
 convert = \case
   (RTCM3Msg1002 m _rtcm3) -> do
     m' <- fromMsg1002 m
@@ -160,3 +162,19 @@ convert = \case
     return $ Just $ SBPMsgBasePosEcef m' $ toSBP m' $
       toSender $ m ^. msg1006_reference ^. antennaReference_station
   _rtcm3Msg -> return Nothing
+
+toWn :: Day -> Word16
+toWn time = fromIntegral $ div (diffDays time (fromGregorian 1980 1 6)) 7
+
+newStore :: IO Store
+newStore = do
+  day <- utctDay <$> getCurrentTime
+  wn  <- newIORef $ toWn day
+  return $ Store
+    { _storeWn = wn
+    }
+
+runConvert :: MonadIO m => ConvertT Store m a -> m a
+runConvert m = do
+  s <- liftIO $ newStore
+  runConvertT s m
