@@ -38,11 +38,8 @@ import           Data.Time
 import           Data.Word
 import           SwiftNav.SBP
 
-{-# ANN module ("HLint: ignore Redundant if"::String) #-}
-
 --------------------------------------------------------------------------------
 -- SBP, GNSS, RTCM constant definitions
-
 
 -- | Two centimeters
 --
@@ -659,7 +656,6 @@ fromObservation1012 obs = obs1 : maybeToList obs2
     l2e  = obs ^. observation1012_l2e
     obs1 = fromGlonassL1SatelliteObservation sat l1 l1e
     obs2 = fromGlonassL2SatelliteObservation sat l1 l1e l2 l2e
-
 
 -- | Convert an RTCM L1 1012 observation into an SBP MsgObs.
 --
