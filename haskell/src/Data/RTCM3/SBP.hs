@@ -28,7 +28,6 @@ module Data.RTCM3.SBP
 
 import           BasicPrelude
 import           Control.Lens
-import           Control.Monad.Extra
 import           Data.Bits
 import qualified Data.HashMap.Strict  as M
 import           Data.IORef
@@ -168,11 +167,8 @@ modifyMap r d k a = do
   writeIORef r n
   n `seq` return v
 
-maybe' :: Maybe a -> b -> (a -> b) -> b
-maybe' m b a = maybe b a m
-
-applyScaleFactor :: (Floating a, Integral b) => a -> a -> b -> a
-applyScaleFactor n p x = (n ** p)  * fromIntegral x
+applyScaleFactor :: (Floating a, Integral b) => a -> b -> a
+applyScaleFactor p x = (2 ** p) * fromIntegral x
 
 --------------------------------------------------------------------------------
 -- GNSS RTCM observation reconstruction utilities
@@ -375,7 +371,7 @@ fromGlonassObservationHeader :: MonadStore e m
                              -> Word8                    -- ^ Message in sequence
                              -> GlonassObservationHeader -- ^ RTCM observation header
                              -> m ObservationHeader
-fromGlonassObservationHeader totalMsgs n hdr = undefined
+fromGlonassObservationHeader _totalMsgs _n _hdr = undefined
 
 -- | Construct an L1 GnssSignal
 --
@@ -388,22 +384,20 @@ toL1GnssSignal sat l1 =
 
 -- | Construct an L1 SBP PackedObsContent an RTCM satellite vehicle observation
 --
-fromGpsL1SatelliteObservation :: MonadStore e m
-                              => Word8               -- ^ Satellite PRN
+fromGpsL1SatelliteObservation :: Word8               -- ^ Satellite PRN
                               -> GpsL1Observation
                               -> GpsL1ExtObservation
-                              -> m PackedObsContent
-fromGpsL1SatelliteObservation sat l1 l1e = do
+                              -> PackedObsContent
+fromGpsL1SatelliteObservation sat l1 l1e =
   -- Checks GPS L1 code indicator for RTCM message 1002.
   -- See DF010, pg. 3-17 of the RTCM3 spec.
-  let sid = toL1GnssSignal sat l1
-  return PackedObsContent
+  PackedObsContent
     { _packedObsContent_P     = toP_L1 l1 l1e
     , _packedObsContent_L     = toL_L1 l1 l1e
     , _packedObsContent_D     = Doppler 0 0
     , _packedObsContent_cn0   = toCn0_L1 l1e
     , _packedObsContent_lock  = toLock $ l1 ^. gpsL1Observation_lockTime
-    , _packedObsContent_sid   = sid
+    , _packedObsContent_sid   = toL1GnssSignal sat l1
     , _packedObsContent_flags = 0x7 -- Doppler Invalid
                                     -- 1/2 cycle phase ambiguity resolved
                                     -- carrier valid
@@ -412,12 +406,11 @@ fromGpsL1SatelliteObservation sat l1 l1e = do
 
 -- | Construct an L1 SBP PackedObsContent an RTCM satellite vehicle observation
 --
-fromGlonassL1SatelliteObservation :: MonadStore e m
-                                  => Word8                   -- ^ Satellite PRN
+fromGlonassL1SatelliteObservation :: Word8                   -- ^ Satellite PRN
                                   -> GlonassL1Observation
                                   -> GlonassL1ExtObservation
-                                  -> m PackedObsContent
-fromGlonassL1SatelliteObservation sat l1 l1e = undefined
+                                  -> PackedObsContent
+fromGlonassL1SatelliteObservation _sat _l1 _l1e = undefined
 
 -- | Construct an L2 GnssSignal
 --
@@ -431,40 +424,36 @@ toL2GnssSignal sat l2 = do
 
 -- | Construct an L2 SBP PackedObsContent an RTCM satellite vehicle observation
 --
-fromGpsL2SatelliteObservation :: MonadStore e m
-                              => Word8                  -- ^ Satellite PRN
+fromGpsL2SatelliteObservation :: Word8                  -- ^ Satellite PRN
                               -> GpsL1Observation
                               -> GpsL1ExtObservation
                               -> GpsL2Observation
                               -> GpsL2ExtObservation
-                              -> m (Maybe PackedObsContent)
-fromGpsL2SatelliteObservation sat l1 l1e l2 l2e =
-  -- Checks GPS L2 code indicator.
-  -- See DF016, pg. 3-17 of the RTCM3 spec.
-  maybe' (toL2GnssSignal sat l2) (return Nothing) $ \sid ->
-    return $ Just PackedObsContent
-      { _packedObsContent_P     = toP_L2 l1 l1e l2
-      , _packedObsContent_L     = toL_L2 l1 l1e l2 l2e
-      , _packedObsContent_D     = Doppler 0 0
-      , _packedObsContent_cn0   = toCn0_L2 l2e
-      , _packedObsContent_lock  = toLock $ l2 ^. gpsL2Observation_lockTime
-      , _packedObsContent_sid   = sid
-      , _packedObsContent_flags = 0x7 -- Doppler Invalid
-                                      -- 1/2 cycle phase ambiguity resolved
-                                      -- carrier valid
-                                      -- pseudorange valid
-    }
+                              -> Maybe PackedObsContent
+fromGpsL2SatelliteObservation sat l1 l1e l2 l2e = do
+  sid <- toL2GnssSignal sat l2
+  return PackedObsContent
+    { _packedObsContent_P     = toP_L2 l1 l1e l2
+    , _packedObsContent_L     = toL_L2 l1 l1e l2 l2e
+    , _packedObsContent_D     = Doppler 0 0
+    , _packedObsContent_cn0   = toCn0_L2 l2e
+    , _packedObsContent_lock  = toLock $ l2 ^. gpsL2Observation_lockTime
+    , _packedObsContent_sid   = sid
+    , _packedObsContent_flags = 0x7 -- Doppler Invalid
+                                    -- 1/2 cycle phase ambiguity resolved
+                                    -- carrier valid
+                                    -- pseudorange valid
+  }
 
 -- | Construct an L2 SBP PackedObsContent an RTCM satellite vehicle observation
 --
-fromGlonassL2SatelliteObservation :: MonadStore e m
-                                  => Word8                  -- ^ Satellite PRN
+fromGlonassL2SatelliteObservation :: Word8                  -- ^ Satellite PRN
                                   -> GlonassL1Observation
                                   -> GlonassL1ExtObservation
                                   -> GlonassL2Observation
                                   -> GlonassL2ExtObservation
-                                  -> m (Maybe PackedObsContent)
-fromGlonassL2SatelliteObservation sat l1 l1e l2 l2e = undefined
+                                  -> Maybe PackedObsContent
+fromGlonassL2SatelliteObservation _sat _l1 _l1e _l2 _l2e = undefined
 
 -- | Validate IODE/IODC flags. The IODC and IODE flags (least significant bits) should be
 -- equal. IODC is Word16 while IODE is Word8, so we shift IODC to drop the most significant bits.
@@ -561,19 +550,16 @@ gpsUriToUra uri
 
 -- | Construct an L1 SBP PackedObsContent from an RTCM Msg 1002.
 --
-fromObservation1002 :: MonadStore e m => Observation1002 -> m [PackedObsContent]
-fromObservation1002 obs = do
-  obs1 <- fromGpsL1SatelliteObservation sat l1 l1e
-  return $
-    -- Only lower set of PRN numbers (1-32) are supported
-    if sat > maxSats then mempty else
-      if invalid_L1 l1 then mempty else
-        [obs1]
+fromObservation1002 :: Observation1002 -> [PackedObsContent]
+fromObservation1002 obs
+  | sat > maxSats = mempty
+  | invalid_L1 l1 = mempty
+  | otherwise = [obs1]
   where
-    sat = obs ^. observation1002_sat
-    l1  = obs ^. observation1002_l1
-    l1e = obs ^. observation1002_l1e
-
+    sat  = obs ^. observation1002_sat
+    l1   = obs ^. observation1002_l1
+    l1e  = obs ^. observation1002_l1e
+    obs1 = fromGpsL1SatelliteObservation sat l1 l1e
 
 -- | Convert an RTCM L1 1002 observation into an SBP MsgObs.
 --
@@ -581,31 +567,30 @@ fromObservation1002 obs = do
 -- may very well exceed the maximum SBP supported payload size of 255 bytes.
 fromMsg1002 :: MonadStore e m => Msg1002 -> m [MsgObs]
 fromMsg1002 m = do
-  let hdr = m ^. msg1002_header
-  obs <- concatMapM fromObservation1002 $ m ^. msg1002_observations
-  let chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
+  let hdr       = m ^. msg1002_header
+      obs       = concatMap fromObservation1002 $ m ^. msg1002_observations
+      chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
       totalMsgs = fromIntegral $ length chunks
   forM chunks $ uncurry $ gpsChunkToMsgObs hdr totalMsgs
 
 -- | Construct an L1/L2 SBP PackedObsContent from an RTCM Msg 1004.
 --
-fromObservation1004 :: MonadStore e m => Observation1004 -> m [PackedObsContent]
-fromObservation1004 obs = do
-  obs1 <- fromGpsL1SatelliteObservation sat l1 l1e
-  obs2 <- fromGpsL2SatelliteObservation sat l1 l1e l2 l2e
-  return $
-    -- Only lower set of PRN numbers (1-32) are supported
-    if sat > maxSats then mempty else
-      if invalid_L1 l1 && invalid_L2 l2 then mempty else
-        if invalid_L1 l1 then maybeToList obs2 else
-          if invalid_L2 l2 then [obs1] else
-            obs1 : maybeToList obs2
+fromObservation1004 :: Observation1004 -> [PackedObsContent]
+fromObservation1004 obs
+  -- Only lower set of PRN numbers (1-32) are supported
+  | sat > maxSats = mempty
+  | invalid_L1 l1 && invalid_L2 l2 = mempty
+  | invalid_L1 l1 = maybeToList obs2
+  | invalid_L2 l2 = [obs1]
+  | otherwise = obs1 : maybeToList obs2
   where
-    sat = obs ^. observation1004_sat
-    l1  = obs ^. observation1004_l1
-    l1e = obs ^. observation1004_l1e
-    l2  = obs ^. observation1004_l2
-    l2e = obs ^. observation1004_l2e
+    sat  = obs ^. observation1004_sat
+    l1   = obs ^. observation1004_l1
+    l1e  = obs ^. observation1004_l1e
+    l2   = obs ^. observation1004_l2
+    l2e  = obs ^. observation1004_l2e
+    obs1 = fromGpsL1SatelliteObservation sat l1 l1e
+    obs2 = fromGpsL2SatelliteObservation sat l1 l1e l2 l2e
 
 
 -- | Convert an RTCM L1+L2 1004 observation into multiple SBP MsgObs.
@@ -614,9 +599,9 @@ fromObservation1004 obs = do
 -- may very well exceed the maximum SBP supported payload size of 255 bytes.
 fromMsg1004 :: MonadStore e m => Msg1004 -> m [MsgObs]
 fromMsg1004 m = do
-  let hdr = m ^. msg1004_header
-  obs <- concatMapM fromObservation1004 $ m ^. msg1004_observations
-  let chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
+  let hdr       = m ^. msg1004_header
+      obs       = concatMap fromObservation1004 $ m ^. msg1004_observations
+      chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
       totalMsgs = fromIntegral $ length chunks
   forM chunks $ uncurry $ gpsChunkToMsgObs hdr totalMsgs
 
@@ -642,14 +627,13 @@ fromMsg1006 m =
 
 -- | Construct an L1 SBP PackedObsContent from an RTCM Msg 1010.
 --
-fromObservation1010 :: MonadStore e m => Observation1010 -> m [PackedObsContent]
-fromObservation1010 obs = do
-  obs1 <- fromGlonassL1SatelliteObservation sat l1 l1e
-  return $ [obs1]
+fromObservation1010 :: Observation1010 -> [PackedObsContent]
+fromObservation1010 obs = [obs1]
   where
-    sat = obs ^. observation1010_sat
-    l1  = obs ^. observation1010_l1
-    l1e = obs ^. observation1010_l1e
+    sat  = obs ^. observation1010_sat
+    l1   = obs ^. observation1010_l1
+    l1e  = obs ^. observation1010_l1e
+    obs1 = fromGlonassL1SatelliteObservation sat l1 l1e
 
 -- | Convert an RTCM L1 1010 observation into an SBP MsgObs.
 --
@@ -657,25 +641,24 @@ fromObservation1010 obs = do
 -- may very well exceed the maximum SBP supported payload size of 255 bytes.
 fromMsg1010 :: MonadStore e m => Msg1010 -> m [MsgObs]
 fromMsg1010 m = do
-  let hdr = m ^. msg1010_header
-  obs <- concatMapM fromObservation1010 $ m ^. msg1010_observations
-  let chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
+  let hdr       = m ^. msg1010_header
+      obs       = concatMap fromObservation1010 $ m ^. msg1010_observations
+      chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
       totalMsgs = fromIntegral $ length chunks
   forM chunks $ uncurry $ glonassChunkToMsgObs hdr totalMsgs
 
 -- | Construct an L1 SBP PackedObsContent from an RTCM Msg 1012.
 --
-fromObservation1012 :: MonadStore e m => Observation1012 -> m [PackedObsContent]
-fromObservation1012 obs = do
-  obs1 <- fromGlonassL1SatelliteObservation sat l1 l1e
-  obs2 <- fromGlonassL2SatelliteObservation sat l1 l1e l2 l2e
-  return $ obs1 : maybeToList obs2
+fromObservation1012 :: Observation1012 -> [PackedObsContent]
+fromObservation1012 obs = obs1 : maybeToList obs2
   where
-    sat = obs ^. observation1012_sat
-    l1  = obs ^. observation1012_l1
-    l1e = obs ^. observation1012_l1e
-    l2  = obs ^. observation1012_l2
-    l2e = obs ^. observation1012_l2e
+    sat  = obs ^. observation1012_sat
+    l1   = obs ^. observation1012_l1
+    l1e  = obs ^. observation1012_l1e
+    l2   = obs ^. observation1012_l2
+    l2e  = obs ^. observation1012_l2e
+    obs1 = fromGlonassL1SatelliteObservation sat l1 l1e
+    obs2 = fromGlonassL2SatelliteObservation sat l1 l1e l2 l2e
 
 
 -- | Convert an RTCM L1 1012 observation into an SBP MsgObs.
@@ -684,8 +667,8 @@ fromObservation1012 obs = do
 -- may very well exceed the maximum SBP supported payload size of 255 bytes.
 fromMsg1012 :: MonadStore e m => Msg1012 -> m [MsgObs]
 fromMsg1012 m = do
-  let hdr = m ^. msg1012_header
-  obs <- concatMapM fromObservation1012 $ m ^. msg1012_observations
+  let hdr       = m ^. msg1012_header
+      obs       = concatMap fromObservation1012 $ m ^. msg1012_observations
   let chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
       totalMsgs = fromIntegral $ length chunks
   forM chunks $ uncurry $ glonassChunkToMsgObs hdr totalMsgs
@@ -697,25 +680,25 @@ fromMsg1019 m = do
   toc           <- toGpsTimeSec (m ^. msg1019_ephemeris ^. gpsEphemeris_wn) (m ^. msg1019_ephemeris ^. gpsEphemeris_toc)
   return MsgEphemerisGps
     { _msgEphemerisGps_common   = commonContent
-    , _msgEphemerisGps_tgd      =         applyScaleFactor 2 (-31) $ m ^. msg1019_ephemeris ^. gpsEphemeris_tgd
-    , _msgEphemerisGps_c_rs     =         applyScaleFactor 2 (-5)  $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_rs
-    , _msgEphemerisGps_c_rc     =         applyScaleFactor 2 (-5)  $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_rc
-    , _msgEphemerisGps_c_uc     =         applyScaleFactor 2 (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_uc
-    , _msgEphemerisGps_c_us     =         applyScaleFactor 2 (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_us
-    , _msgEphemerisGps_c_ic     =         applyScaleFactor 2 (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_ic
-    , _msgEphemerisGps_c_is     =         applyScaleFactor 2 (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_is
-    , _msgEphemerisGps_dn       = gpsPi * applyScaleFactor 2 (-43)  (m ^. msg1019_ephemeris ^. gpsEphemeris_dn)
-    , _msgEphemerisGps_m0       = gpsPi * applyScaleFactor 2 (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_m0)
-    , _msgEphemerisGps_ecc      =         applyScaleFactor 2 (-33) $ m ^. msg1019_ephemeris ^. gpsEphemeris_ecc
-    , _msgEphemerisGps_sqrta    =         applyScaleFactor 2 (-19) $ m ^. msg1019_ephemeris ^. gpsEphemeris_sqrta
-    , _msgEphemerisGps_omega0   = gpsPi * applyScaleFactor 2 (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_omega0)
-    , _msgEphemerisGps_omegadot = gpsPi * applyScaleFactor 2 (-43)  (m ^. msg1019_ephemeris ^. gpsEphemeris_omegadot)
-    , _msgEphemerisGps_w        = gpsPi * applyScaleFactor 2 (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_w)
-    , _msgEphemerisGps_inc      = gpsPi * applyScaleFactor 2 (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_i0)
-    , _msgEphemerisGps_inc_dot  = gpsPi * applyScaleFactor 2 (-43)  (m ^. msg1019_ephemeris ^. gpsEphemeris_idot)
-    , _msgEphemerisGps_af0      =         applyScaleFactor 2 (-31) $ m ^. msg1019_ephemeris ^. gpsEphemeris_af0
-    , _msgEphemerisGps_af1      =         applyScaleFactor 2 (-43) $ m ^. msg1019_ephemeris ^. gpsEphemeris_af1
-    , _msgEphemerisGps_af2      =         applyScaleFactor 2 (-55) $ m ^. msg1019_ephemeris ^. gpsEphemeris_af2
+    , _msgEphemerisGps_tgd      =         applyScaleFactor (-31) $ m ^. msg1019_ephemeris ^. gpsEphemeris_tgd
+    , _msgEphemerisGps_c_rs     =         applyScaleFactor (-5)  $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_rs
+    , _msgEphemerisGps_c_rc     =         applyScaleFactor (-5)  $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_rc
+    , _msgEphemerisGps_c_uc     =         applyScaleFactor (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_uc
+    , _msgEphemerisGps_c_us     =         applyScaleFactor (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_us
+    , _msgEphemerisGps_c_ic     =         applyScaleFactor (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_ic
+    , _msgEphemerisGps_c_is     =         applyScaleFactor (-29) $ m ^. msg1019_ephemeris ^. gpsEphemeris_c_is
+    , _msgEphemerisGps_dn       = gpsPi * applyScaleFactor (-43)  (m ^. msg1019_ephemeris ^. gpsEphemeris_dn)
+    , _msgEphemerisGps_m0       = gpsPi * applyScaleFactor (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_m0)
+    , _msgEphemerisGps_ecc      =         applyScaleFactor (-33) $ m ^. msg1019_ephemeris ^. gpsEphemeris_ecc
+    , _msgEphemerisGps_sqrta    =         applyScaleFactor (-19) $ m ^. msg1019_ephemeris ^. gpsEphemeris_sqrta
+    , _msgEphemerisGps_omega0   = gpsPi * applyScaleFactor (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_omega0)
+    , _msgEphemerisGps_omegadot = gpsPi * applyScaleFactor (-43)  (m ^. msg1019_ephemeris ^. gpsEphemeris_omegadot)
+    , _msgEphemerisGps_w        = gpsPi * applyScaleFactor (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_w)
+    , _msgEphemerisGps_inc      = gpsPi * applyScaleFactor (-31)  (m ^. msg1019_ephemeris ^. gpsEphemeris_i0)
+    , _msgEphemerisGps_inc_dot  = gpsPi * applyScaleFactor (-43)  (m ^. msg1019_ephemeris ^. gpsEphemeris_idot)
+    , _msgEphemerisGps_af0      =         applyScaleFactor (-31) $ m ^. msg1019_ephemeris ^. gpsEphemeris_af0
+    , _msgEphemerisGps_af1      =         applyScaleFactor (-43) $ m ^. msg1019_ephemeris ^. gpsEphemeris_af1
+    , _msgEphemerisGps_af2      =         applyScaleFactor (-55) $ m ^. msg1019_ephemeris ^. gpsEphemeris_af2
     , _msgEphemerisGps_iodc     =                                    m ^. msg1019_ephemeris ^. gpsEphemeris_iodc
     , _msgEphemerisGps_iode     =                                    m ^. msg1019_ephemeris ^. gpsEphemeris_iode
     , _msgEphemerisGps_toc      = toc
