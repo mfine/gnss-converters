@@ -188,75 +188,86 @@ glonassL2Signal sat code
   | code == 0 = Just $ GnssSignal16 sat 4
   | otherwise = Nothing
 
+
 -- | Produce packed obs content from GPS L1 observation.
 --
 toGpsL1PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> Maybe PackedObsContent
-toGpsL1PackedObsContents sat l1 l1e =
-  return PackedObsContent
-    { _packedObsContent_P     = toP p
-    , _packedObsContent_L     = toL l
-    , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = l1e ^. gpsL1ExtObservation_cnr
-    , _packedObsContent_lock  = toLock $ lock (l1 ^. gpsL1Observation_lockTime)
-    , _packedObsContent_sid   = gpsL1Signal sat (l1 ^. gpsL1Observation_code)
-    , _packedObsContent_flags = obsFlags
-    }
+toGpsL1PackedObsContents sat l1 l1e
+  | no        = Nothing
+  | otherwise = Just PackedObsContent
+      { _packedObsContent_P     = toP p
+      , _packedObsContent_L     = toL l
+      , _packedObsContent_D     = obsDoppler
+      , _packedObsContent_cn0   = l1e ^. gpsL1ExtObservation_cnr
+      , _packedObsContent_lock  = toLock $ lock (l1 ^. gpsL1Observation_lockTime)
+      , _packedObsContent_sid   = gpsL1Signal sat (l1 ^. gpsL1Observation_code)
+      , _packedObsContent_flags = obsFlags
+      }
   where
-    p = pseudorange gpsPseudorange (l1 ^. gpsL1Observation_pseudorange) (l1e ^. gpsL1ExtObservation_ambiguity)
-    l = carrierPhase gpsL1CarrierPhase p (l1 ^. gpsL1Observation_carrierMinusCode)
+    no = l1 ^. gpsL1Observation_pseudorange == 524288 || l1 ^. gpsL1Observation_carrierMinusCode == -524288
+    p  = pseudorange gpsPseudorange (l1 ^. gpsL1Observation_pseudorange) (l1e ^. gpsL1ExtObservation_ambiguity)
+    l  = carrierPhase gpsL1CarrierPhase p (l1 ^. gpsL1Observation_carrierMinusCode)
 
 -- | Produce packed obs content from GPS L1 + L2 observations.
 --
 toGpsL2PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> GpsL2Observation -> GpsL2ExtObservation -> Maybe PackedObsContent
-toGpsL2PackedObsContents sat l1 l1e l2 l2e =
-  return PackedObsContent
-    { _packedObsContent_P     = toP p
-    , _packedObsContent_L     = toL l
-    , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = l2e ^. gpsL2ExtObservation_cnr
-    , _packedObsContent_lock  = toLock $ lock (l2 ^. gpsL2Observation_lockTime)
-    , _packedObsContent_sid   = gpsL2Signal sat (l2 ^. gpsL2Observation_code)
-    , _packedObsContent_flags = obsFlags
-    }
+toGpsL2PackedObsContents sat l1 l1e l2 l2e
+  | no        = Nothing
+  | otherwise = Just PackedObsContent
+      { _packedObsContent_P     = toP p
+      , _packedObsContent_L     = toL l
+      , _packedObsContent_D     = obsDoppler
+      , _packedObsContent_cn0   = l2e ^. gpsL2ExtObservation_cnr
+      , _packedObsContent_lock  = toLock $ lock (l2 ^. gpsL2Observation_lockTime)
+      , _packedObsContent_sid   = gpsL2Signal sat (l2 ^. gpsL2Observation_code)
+      , _packedObsContent_flags = obsFlags
+      }
   where
-    p = pseudorange gpsPseudorange (l1 ^. gpsL1Observation_pseudorange) (l1e ^. gpsL1ExtObservation_ambiguity) + pseudorangeDifference (l2 ^. gpsL2Observation_pseudorangeDifference)
-    l = carrierPhase gpsL2CarrierPhase p (l2 ^. gpsL2Observation_carrierMinusCode)
+    no = l2 ^. gpsL2Observation_pseudorangeDifference == -8192 || l2 ^. gpsL2Observation_carrierMinusCode == -524288
+    p  = pseudorange gpsPseudorange (l1 ^. gpsL1Observation_pseudorange) (l1e ^. gpsL1ExtObservation_ambiguity) + pseudorangeDifference (l2 ^. gpsL2Observation_pseudorangeDifference)
+    l  = carrierPhase gpsL2CarrierPhase p (l2 ^. gpsL2Observation_carrierMinusCode)
 
 -- | Produce packed obs content from GLONASS L1 observation.
 --
 toGlonassL1PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> Maybe PackedObsContent
-toGlonassL1PackedObsContents sat l1 l1e = do
-  sid <- glonassL1Signal sat (l1 ^. glonassL1Observation_code)
-  return PackedObsContent
-    { _packedObsContent_P     = toP p
-    , _packedObsContent_L     = toL l
-    , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = l1e ^. glonassL1ExtObservation_cnr
-    , _packedObsContent_lock  = toLock $ lock (l1 ^. glonassL1Observation_lockTime)
-    , _packedObsContent_sid   = sid
-    , _packedObsContent_flags = obsFlags
-    }
+toGlonassL1PackedObsContents sat l1 l1e
+  | no        = Nothing
+  | otherwise = do
+      sid <- glonassL1Signal sat (l1 ^. glonassL1Observation_code)
+      Just PackedObsContent
+        { _packedObsContent_P     = toP p
+        , _packedObsContent_L     = toL l
+        , _packedObsContent_D     = obsDoppler
+        , _packedObsContent_cn0   = l1e ^. glonassL1ExtObservation_cnr
+        , _packedObsContent_lock  = toLock $ lock (l1 ^. glonassL1Observation_lockTime)
+        , _packedObsContent_sid   = sid
+        , _packedObsContent_flags = obsFlags
+        }
   where
-    p = pseudorange glonassPseudorange (l1 ^. glonassL1Observation_pseudorange) (l1e ^. glonassL1ExtObservation_ambiguity)
-    l = carrierPhase (glonassL1CarrierPhase (l1 ^. glonassL1Observation_frequency)) p (l1 ^. glonassL1Observation_carrierMinusCode)
+    no = l1 ^. glonassL1Observation_carrierMinusCode == -524288
+    p  = pseudorange glonassPseudorange (l1 ^. glonassL1Observation_pseudorange) (l1e ^. glonassL1ExtObservation_ambiguity)
+    l  = carrierPhase (glonassL1CarrierPhase (l1 ^. glonassL1Observation_frequency)) p (l1 ^. glonassL1Observation_carrierMinusCode)
 
 -- | Produce packed obs content from GLONASS L1 + L2 observations.
 --
 toGlonassL2PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> GlonassL2Observation -> GlonassL2ExtObservation -> Maybe PackedObsContent
-toGlonassL2PackedObsContents sat l1 l1e l2 l2e = do
-  sid <- glonassL2Signal sat (l2 ^. glonassL2Observation_code)
-  return PackedObsContent
-    { _packedObsContent_P     = toP p
-    , _packedObsContent_L     = toL l
-    , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = l2e ^. glonassL2ExtObservation_cnr
-    , _packedObsContent_lock  = toLock $ lock (l2 ^. glonassL2Observation_lockTime)
-    , _packedObsContent_sid   = sid
-    , _packedObsContent_flags = obsFlags
-    }
+toGlonassL2PackedObsContents sat l1 l1e l2 l2e
+  | no        = Nothing
+  | otherwise = do
+      sid <- glonassL2Signal sat (l2 ^. glonassL2Observation_code)
+      Just PackedObsContent
+        { _packedObsContent_P     = toP p
+        , _packedObsContent_L     = toL l
+        , _packedObsContent_D     = obsDoppler
+        , _packedObsContent_cn0   = l2e ^. glonassL2ExtObservation_cnr
+        , _packedObsContent_lock  = toLock $ lock (l2 ^. glonassL2Observation_lockTime)
+        , _packedObsContent_sid   = sid
+        , _packedObsContent_flags = obsFlags
+        }
   where
-    p = pseudorange glonassPseudorange (l1 ^. glonassL1Observation_pseudorange) (l1e ^. glonassL1ExtObservation_ambiguity) + pseudorangeDifference (l2 ^. glonassL2Observation_pseudorangeDifference)
-    l = carrierPhase (glonassL2CarrierPhase (l1 ^. glonassL1Observation_frequency)) p (l2 ^. glonassL2Observation_carrierMinusCode)
+    no = l2 ^. glonassL2Observation_pseudorangeDifference == -512 || l2 ^. glonassL2Observation_carrierMinusCode == -524288
+    p  = pseudorange glonassPseudorange (l1 ^. glonassL1Observation_pseudorange) (l1e ^. glonassL1ExtObservation_ambiguity) + pseudorangeDifference (l2 ^. glonassL2Observation_pseudorangeDifference)
+    l  = carrierPhase (glonassL2CarrierPhase (l1 ^. glonassL1Observation_frequency)) p (l2 ^. glonassL2Observation_carrierMinusCode)
 
 -- | FromObservation produces l1 and l2 packed obs content.
 --
