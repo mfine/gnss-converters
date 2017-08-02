@@ -33,6 +33,7 @@ import qualified Data.HashMap.Strict  as M
 import           Data.IORef
 import           Data.List.Extra      hiding (concat, map)
 import           Data.RTCM3
+import           Data.RTCM3.SBP.Observations
 import           Data.RTCM3.SBP.Types
 import           Data.Time
 import           Data.Word
@@ -665,7 +666,7 @@ fromMsg1012 :: MonadStore e m => Msg1012 -> m [MsgObs]
 fromMsg1012 m = do
   let hdr       = m ^. msg1012_header
       obs       = concatMap fromObservation1012 $ m ^. msg1012_observations
-  let chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
+      chunks    = zip [0..] $ chunksOf maxObsPerMessage obs
       totalMsgs = fromIntegral $ length chunks
   forM chunks $ uncurry $ glonassChunkToMsgObs hdr totalMsgs
 
@@ -728,6 +729,42 @@ convert = \case
     let sender = m ^. msg1012_header ^. glonassObservationHeader_station
     m' <- fromMsg1012 m
     return $ flip fmap m' $ \x -> SBPMsgObs x $ toSBP x $ toSender sender
+  (RTCM3Msg1013 m _rtcm3) -> do
+    wn <- view storeWn
+    liftIO $ writeIORef wn $ toWn $ m ^. msg1013_header ^. messageHeader_mjd
+    return mempty
+  (RTCM3Msg1019 m _rtcm3) -> do
+    let sender = 0
+    m' <- fromMsg1019 m
+    return [SBPMsgEphemerisGps m' $ toSBP m' $ toSender sender]
+  _rtcm3Msg -> return mempty
+
+-- | Convert an RTCM message into possibly multiple SBP messages.
+--
+convert' :: MonadStore e m => RTCM3Msg -> m [SBPMsg]
+convert' = \case
+  (RTCM3Msg1002 m _rtcm3) -> do
+    m' <- toMsgObs m
+    return $ flip fmap m' $ \x ->
+      SBPMsgObs x $ toSBP x $ toSender $ m ^. msg1002_header ^. gpsObservationHeader_station
+  (RTCM3Msg1004 m _rtcm3) -> do
+    m' <- toMsgObs m
+    return $ flip fmap m' $ \x ->
+      SBPMsgObs x $ toSBP x $ toSender $ m ^. msg1004_header ^. gpsObservationHeader_station
+  (RTCM3Msg1005 m _rtcm3) -> do
+    m' <- fromMsg1005 m
+    return [SBPMsgBasePosEcef m' $ toSBP m' $ toSender $ m ^. msg1005_reference ^. antennaReference_station]
+  (RTCM3Msg1006 m _rtcm3) -> do
+    m' <- fromMsg1006 m
+    return [SBPMsgBasePosEcef m' $ toSBP m' $ toSender $ m ^. msg1006_reference ^. antennaReference_station]
+  (RTCM3Msg1010 m _rtcm3) -> do
+    m' <- toMsgObs m
+    return $ flip fmap m' $ \x ->
+      SBPMsgObs x $ toSBP x $ toSender $ m ^. msg1010_header ^. glonassObservationHeader_station
+  (RTCM3Msg1012 m _rtcm3) -> do
+    m' <- toMsgObs m
+    return $ flip fmap m' $ \x ->
+      SBPMsgObs x $ toSBP x $ toSender $ m ^. msg1012_header ^. glonassObservationHeader_station
   (RTCM3Msg1013 m _rtcm3) -> do
     wn <- view storeWn
     liftIO $ writeIORef wn $ toWn $ m ^. msg1013_header ^. messageHeader_mjd
