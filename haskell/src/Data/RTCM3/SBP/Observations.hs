@@ -127,6 +127,39 @@ toL l = if f /= 256 then CarrierPhase i (fromIntegral f) else CarrierPhase (i + 
     i = floor l
     f = (round $ (l - fromIntegral i) * 256) :: Word16
 
+-- | Lock indicator.
+--
+lock :: Word8 -> Word32
+lock t
+  | t <  24 = fromIntegral t
+  | t <  48 = fromIntegral t *  2 -   24
+  | t <  72 = fromIntegral t *  4 -  120
+  | t <  96 = fromIntegral t *  8 -  408
+  | t < 120 = fromIntegral t * 16 - 1176
+  | t < 127 = fromIntegral t * 32 - 3096
+  | otherwise = 937
+
+-- | Convert to lock time.
+--
+toLock :: Word32 -> Word8
+toLock t
+  | t <     32 = 0
+  | t <     64 = 1
+  | t <    128 = 2
+  | t <    256 = 3
+  | t <    512 = 4
+  | t <   1024 = 5
+  | t <   2048 = 6
+  | t <   4096 = 7
+  | t <   8192 = 8
+  | t <  16384 = 9
+  | t <  32768 = 10
+  | t <  65536 = 11
+  | t < 131072 = 12
+  | t < 262144 = 13
+  | t < 524288 = 14
+  | otherwise = 15
+
 -- | Produce packed obs content from GPS L1 observation.
 --
 toGpsL1PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> Maybe PackedObsContent
@@ -135,8 +168,8 @@ toGpsL1PackedObsContents _sat l1 l1e =
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = undefined -- TODO
-    , _packedObsContent_lock  = undefined -- TODO
+    , _packedObsContent_cn0   = l1e ^. gpsL1ExtObservation_cnr
+    , _packedObsContent_lock  = toLock $ lock (l1 ^. gpsL1Observation_lockTime)
     , _packedObsContent_sid   = undefined -- TODO
     , _packedObsContent_flags = obsFlags
     }
@@ -147,13 +180,13 @@ toGpsL1PackedObsContents _sat l1 l1e =
 -- | Produce packed obs content from GPS L1 + L2 observations.
 --
 toGpsL2PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> GpsL2Observation -> GpsL2ExtObservation -> Maybe PackedObsContent
-toGpsL2PackedObsContents _sat l1 l1e l2 _l2e =
+toGpsL2PackedObsContents _sat l1 l1e l2 l2e =
   return PackedObsContent
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = undefined -- TODO
-    , _packedObsContent_lock  = undefined -- TODO
+    , _packedObsContent_cn0   = l2e ^. gpsL2ExtObservation_cnr
+    , _packedObsContent_lock  = toLock $ lock (l2 ^. gpsL2Observation_lockTime)
     , _packedObsContent_sid   = undefined -- TODO
     , _packedObsContent_flags = obsFlags
     }
@@ -169,8 +202,8 @@ toGlonassL1PackedObsContents _sat l1 l1e =
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = undefined -- TODO
-    , _packedObsContent_lock  = undefined -- TODO
+    , _packedObsContent_cn0   = l1e ^. glonassL1ExtObservation_cnr
+    , _packedObsContent_lock  = toLock $ lock (l1 ^. glonassL1Observation_lockTime)
     , _packedObsContent_sid   = undefined -- TODO
     , _packedObsContent_flags = obsFlags
     }
@@ -181,13 +214,13 @@ toGlonassL1PackedObsContents _sat l1 l1e =
 -- | Produce packed obs content from GLONASS L1 + L2 observations.
 --
 toGlonassL2PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> GlonassL2Observation -> GlonassL2ExtObservation -> Maybe PackedObsContent
-toGlonassL2PackedObsContents _sat l1 l1e l2 _l2e =
+toGlonassL2PackedObsContents _sat l1 l1e l2 l2e =
   return PackedObsContent
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
-    , _packedObsContent_cn0   = undefined -- TODO
-    , _packedObsContent_lock  = undefined -- TODO
+    , _packedObsContent_cn0   = l2e ^. glonassL2ExtObservation_cnr
+    , _packedObsContent_lock  = toLock $ lock (l2 ^. glonassL2Observation_lockTime)
     , _packedObsContent_sid   = undefined -- TODO
     , _packedObsContent_flags = obsFlags
     }
