@@ -12,11 +12,14 @@
 
 module Data.RTCM3.SBP.Observations
   ( toMsgObs
+  , toSender
+  , toSBPMsgObs
   ) where
 
 import BasicPrelude
 import Control.Lens
 import Data.Bits
+import Data.Int
 import Data.IORef
 import Data.List.Extra
 import Data.RTCM3
@@ -64,14 +67,39 @@ obsDoppler = Doppler 0 0
 -- | Default observation flags.
 --
 obsFlags :: Word8
-obsFlags = 0x7
+obsFlags = 7
+
+-- | Convert 2cm units.
+--
+toP :: Double -> Word32
+toP pr = round $ 50 * pr
+
+-- | Calculate Pseudorange.
+--
+pseudorange :: Double -> Word32 -> Word8 -> Double
+pseudorange p pr amb = 0.02 * fromIntegral pr + p * fromIntegral amb
+
+-- | Calculate Pseudorange difference.
+--
+pseudorangeDifference :: Int16 -> Double
+pseudorangeDifference diff = 0.02 * fromIntegral diff
+
+-- | GPS pseudorange unit.
+--
+gpsPseudorange :: Double
+gpsPseudorange = 299792.458
+
+-- | Glonass pseudorange unit.
+--
+glonassPseudorange :: Double
+glonassPseudorange = 599584.916
 
 -- | Produce packed obs content from GPS L1 observation.
 --
 toGpsL1PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> Maybe PackedObsContent
-toGpsL1PackedObsContents _sat _l1 _l1e =
+toGpsL1PackedObsContents _sat l1 l1e =
   return PackedObsContent
-    { _packedObsContent_P     = undefined -- TODO
+    { _packedObsContent_P     = toP $ pseudorange gpsPseudorange (l1 ^. gpsL1Observation_pseudorange) (l1e ^. gpsL1ExtObservation_ambiguity)
     , _packedObsContent_L     = undefined -- TODO
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = undefined -- TODO
@@ -83,9 +111,9 @@ toGpsL1PackedObsContents _sat _l1 _l1e =
 -- | Produce packed obs content from GPS L1 + L2 observations.
 --
 toGpsL2PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> GpsL2Observation -> GpsL2ExtObservation -> Maybe PackedObsContent
-toGpsL2PackedObsContents _sat _l1 _l1e _l2 _l2e =
+toGpsL2PackedObsContents _sat l1 l1e l2 _l2e =
   return PackedObsContent
-    { _packedObsContent_P     = undefined -- TODO
+    { _packedObsContent_P     = toP $ pseudorange gpsPseudorange (l1 ^. gpsL1Observation_pseudorange) (l1e ^. gpsL1ExtObservation_ambiguity) + pseudorangeDifference (l2 ^. gpsL2Observation_pseudorangeDifference)
     , _packedObsContent_L     = undefined -- TODO
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = undefined -- TODO
@@ -97,9 +125,9 @@ toGpsL2PackedObsContents _sat _l1 _l1e _l2 _l2e =
 -- | Produce packed obs content from GLONASS L1 observation.
 --
 toGlonassL1PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> Maybe PackedObsContent
-toGlonassL1PackedObsContents _sat _l1 _l1e =
+toGlonassL1PackedObsContents _sat l1 l1e =
   return PackedObsContent
-    { _packedObsContent_P     = undefined -- TODO
+    { _packedObsContent_P     = toP $ pseudorange glonassPseudorange (l1 ^. glonassL1Observation_pseudorange) (l1e ^. glonassL1ExtObservation_ambiguity)
     , _packedObsContent_L     = undefined -- TODO
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = undefined -- TODO
@@ -111,9 +139,9 @@ toGlonassL1PackedObsContents _sat _l1 _l1e =
 -- | Produce packed obs content from GLONASS L1 + L2 observations.
 --
 toGlonassL2PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> GlonassL2Observation -> GlonassL2ExtObservation -> Maybe PackedObsContent
-toGlonassL2PackedObsContents _sat _l1 _l1e _l2 _l2e =
+toGlonassL2PackedObsContents _sat l1 l1e l2 _l2e =
   return PackedObsContent
-    { _packedObsContent_P     = undefined -- TODO
+    { _packedObsContent_P     = toP $ pseudorange glonassPseudorange (l1 ^. glonassL1Observation_pseudorange) (l1e ^. glonassL1ExtObservation_ambiguity) + pseudorangeDifference (l2 ^. glonassL2Observation_pseudorangeDifference)
     , _packedObsContent_L     = undefined -- TODO
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = undefined -- TODO
@@ -147,30 +175,35 @@ instance FromObservation Observation1012 where
 -- | Convert RTCMv3 observation to SBP packed obs contents.
 --
 toPackedObsContent :: FromObservation a => [a] -> [PackedObsContent]
-toPackedObsContent = concatMap $
-  (<>) <$> maybeToList . l1PackedObsContents <*> maybeToList . l2PackedObsContents
+toPackedObsContent =
+  concatMap $ (<>) <$> maybeToList . l1PackedObsContents <*> maybeToList . l2PackedObsContents
 
 -- | FromObservations produces gps time and packed obs content.
 --
 class FromObservations a where
   gpsTimeNano       :: MonadStore e m => a -> m GpsTimeNano
   packedObsContents :: a -> [PackedObsContent]
+  station           :: a -> Word16
 
 instance FromObservations Msg1002 where
   gpsTimeNano       = toGpsTimeNano . view msg1002_header
   packedObsContents = toPackedObsContent . view msg1002_observations
+  station           = view $ msg1002_header . gpsObservationHeader_station
 
 instance FromObservations Msg1004 where
   gpsTimeNano       = toGpsTimeNano . view msg1004_header
   packedObsContents = toPackedObsContent . view msg1004_observations
+  station           = view $ msg1004_header . gpsObservationHeader_station
 
 instance FromObservations Msg1010 where
   gpsTimeNano       = toGpsTimeNano . view msg1010_header
   packedObsContents = toPackedObsContent . view msg1010_observations
+  station           = view $ msg1010_header . glonassObservationHeader_station
 
 instance FromObservations Msg1012 where
   gpsTimeNano       = toGpsTimeNano . view msg1012_header
   packedObsContents = toPackedObsContent . view msg1012_observations
+  station           = view $ msg1012_header . glonassObservationHeader_station
 
 -- | Convert RTCMv3 observation messages to SBP observation header.
 --
@@ -184,11 +217,25 @@ toObservationHeader i n m = do
 toMsgObs :: (MonadStore e m, FromObservations a) => a -> m [MsgObs]
 toMsgObs m =
   iforM obs $ \i obs' -> do
-    hdr <- toObservationHeader (fromIntegral i) (fromIntegral $ length obs) m
+    hdr <- toObservationHeader (fromIntegral i) (fromIntegral n) m
     return $ MsgObs hdr obs'
   where
+    n       = length obs
     obs     = chunksOf maxObs $ packedObsContents m
     maxObs  = (maxSize - hdrSize) `div` obsSize
     maxSize = 255
     hdrSize = 11
     obsSize = 17
+
+-- | Get the sender from the station.
+--
+toSender :: FromObservations a => a -> Word16
+toSender = (.|. 61440) . station
+
+-- | Convert RTCMv3 observation messages to SBP observations messages.
+--
+toSBPMsgObs :: (MonadStore e m, FromObservations a) => a -> m [SBPMsg]
+toSBPMsgObs m = do
+  ms <- toMsgObs m
+  return $ for ms $ \m' ->
+    SBPMsgObs m' $ toSBP m' $ toSender m
