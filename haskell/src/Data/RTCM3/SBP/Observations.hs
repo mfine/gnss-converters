@@ -131,12 +131,12 @@ toL l = if f /= 256 then CarrierPhase i (fromIntegral f) else CarrierPhase (i + 
 --
 lock :: Word8 -> Word32
 lock t
-  | t <  24 = fromIntegral t
-  | t <  48 = fromIntegral t *  2 -   24
-  | t <  72 = fromIntegral t *  4 -  120
-  | t <  96 = fromIntegral t *  8 -  408
-  | t < 120 = fromIntegral t * 16 - 1176
-  | t < 127 = fromIntegral t * 32 - 3096
+  |   t <  24 = fromIntegral t
+  |   t <  48 = fromIntegral t *  2 -   24
+  |   t <  72 = fromIntegral t *  4 -  120
+  |   t <  96 = fromIntegral t *  8 -  408
+  |   t < 120 = fromIntegral t * 16 - 1176
+  |   t < 127 = fromIntegral t * 32 - 3096
   | otherwise = 937
 
 -- | Convert to lock time.
@@ -158,19 +158,47 @@ toLock t
   | t < 131072 = 12
   | t < 262144 = 13
   | t < 524288 = 14
-  | otherwise = 15
+  |  otherwise = 15
+
+-- | Map GPS L1 signal.
+--
+gpsL1Signal :: Word8 -> Bool -> GnssSignal16
+gpsL1Signal sat code
+  | code      = GnssSignal16 sat 5
+  | otherwise = GnssSignal16 sat 0
+
+-- | Map GPS L2 signal.
+--
+gpsL2Signal :: Word8 -> Word8 -> GnssSignal16
+gpsL2Signal sat code
+  | code == 0 = GnssSignal16 sat 1
+  | otherwise = GnssSignal16 sat 6
+
+-- | Map Glonass L1 signal.
+--
+glonassL1Signal :: Word8 -> Bool -> Maybe GnssSignal16
+glonassL1Signal sat code
+  | code      = Just $ GnssSignal16 sat 3
+  | otherwise = Nothing
+
+-- | Map Glonass L2 signal.
+--
+glonassL2Signal :: Word8 -> Word8 -> Maybe GnssSignal16
+glonassL2Signal sat code
+  | code == 0 = Just $ GnssSignal16 sat 4
+  | otherwise = Nothing
 
 -- | Produce packed obs content from GPS L1 observation.
 --
 toGpsL1PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> Maybe PackedObsContent
-toGpsL1PackedObsContents _sat l1 l1e =
+toGpsL1PackedObsContents sat l1 l1e =
   return PackedObsContent
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = l1e ^. gpsL1ExtObservation_cnr
     , _packedObsContent_lock  = toLock $ lock (l1 ^. gpsL1Observation_lockTime)
-    , _packedObsContent_sid   = undefined -- TODO
+    , _packedObsContent_sid   = gpsL1Signal sat (l1 ^. gpsL1Observation_code)
     , _packedObsContent_flags = obsFlags
     }
   where
@@ -180,14 +208,14 @@ toGpsL1PackedObsContents _sat l1 l1e =
 -- | Produce packed obs content from GPS L1 + L2 observations.
 --
 toGpsL2PackedObsContents :: Word8 -> GpsL1Observation -> GpsL1ExtObservation -> GpsL2Observation -> GpsL2ExtObservation -> Maybe PackedObsContent
-toGpsL2PackedObsContents _sat l1 l1e l2 l2e =
+toGpsL2PackedObsContents sat l1 l1e l2 l2e =
   return PackedObsContent
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = l2e ^. gpsL2ExtObservation_cnr
     , _packedObsContent_lock  = toLock $ lock (l2 ^. gpsL2Observation_lockTime)
-    , _packedObsContent_sid   = undefined -- TODO
+    , _packedObsContent_sid   = gpsL2Signal sat (l2 ^. gpsL2Observation_code)
     , _packedObsContent_flags = obsFlags
     }
   where
@@ -197,14 +225,15 @@ toGpsL2PackedObsContents _sat l1 l1e l2 l2e =
 -- | Produce packed obs content from GLONASS L1 observation.
 --
 toGlonassL1PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> Maybe PackedObsContent
-toGlonassL1PackedObsContents _sat l1 l1e =
+toGlonassL1PackedObsContents sat l1 l1e = do
+  sid <- glonassL1Signal sat (l1 ^. glonassL1Observation_code)
   return PackedObsContent
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = l1e ^. glonassL1ExtObservation_cnr
     , _packedObsContent_lock  = toLock $ lock (l1 ^. glonassL1Observation_lockTime)
-    , _packedObsContent_sid   = undefined -- TODO
+    , _packedObsContent_sid   = sid
     , _packedObsContent_flags = obsFlags
     }
   where
@@ -214,14 +243,15 @@ toGlonassL1PackedObsContents _sat l1 l1e =
 -- | Produce packed obs content from GLONASS L1 + L2 observations.
 --
 toGlonassL2PackedObsContents :: Word8 -> GlonassL1Observation -> GlonassL1ExtObservation -> GlonassL2Observation -> GlonassL2ExtObservation -> Maybe PackedObsContent
-toGlonassL2PackedObsContents _sat l1 l1e l2 l2e =
+toGlonassL2PackedObsContents sat l1 l1e l2 l2e = do
+  sid <- glonassL2Signal sat (l2 ^. glonassL2Observation_code)
   return PackedObsContent
     { _packedObsContent_P     = toP p
     , _packedObsContent_L     = toL l
     , _packedObsContent_D     = obsDoppler
     , _packedObsContent_cn0   = l2e ^. glonassL2ExtObservation_cnr
     , _packedObsContent_lock  = toLock $ lock (l2 ^. glonassL2Observation_lockTime)
-    , _packedObsContent_sid   = undefined -- TODO
+    , _packedObsContent_sid   = sid
     , _packedObsContent_flags = obsFlags
     }
   where
